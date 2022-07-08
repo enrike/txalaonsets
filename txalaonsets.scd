@@ -34,7 +34,7 @@ s.waitForBoot{	s.meter(8,8) }
 var onsetchannels = [1,2,3,4,5,6,7]; // input channels to check for onsets. skip 0. use that to record audio
 var input = 8; // input channel to record audio from
 var onsetthr = 0.05; // audio onset threshold
-var relaxt = 0.005; // audio onset fall time
+var relaxt = 0.01; // audio onset fall time
 var gain = 10; // if signal too weak. gain for planks
 var gain2 = 15; // separated gain for sticks
 var odftype = \wphase; //both \mk1 and \wphase work best
@@ -57,8 +57,8 @@ s.waitForBoot{
 		var onsets, signals, levels, fft;
 		signals = SoundIn.ar(onsetchannels) * [gain, gain, gain, gain2, gain2, gain2, gain2]; // skip channel 0 !!!
 		levels = WAmp.kr(signals, 0.04);
-		fft = FFT(Array.fill(signals.size, { LocalBuf(1024) }), signals, wintype:1);
-		onsets = Onsets.kr(fft, threshold, odftype:odftype, relaxtime:relaxtime, floor:0.1,
+		fft = FFT(Array.fill(signals.size, { LocalBuf(512) }), signals, wintype:1);
+		onsets = Onsets.kr(fft, threshold, odftype:odftype, relaxtime:relaxtime, floor:0.08,
 			mingap:1, medianspan:11, whtype:1, rawodf:0);
 		SendReply.kr(onsets, '/onset', [Sweep.ar(t_trig).asArray++onsets++levels] );
 	}).add;
@@ -76,7 +76,7 @@ s.waitForBoot{
 
 	Server.default.sync;
 
-	w = Window.new("onset detection values", Rect(100, 100, 355, 190)).front;
+	w = Window.new("onset detection values", Rect(0, 100, 355, 190)).front;
 	w.view.decorator = FlowLayout(w.view.bounds);
 	w.view.decorator.gap=2@2;
 	EZSlider( w,         // parent
@@ -145,7 +145,8 @@ s.waitForBoot{
 		newhitF = {|data|
 			t.hit(SystemClock.seconds, data[\amp], data[\player], data[\plank], data[\stick]); // draw the new hit into the piano roll GUI
 		};
-	});
+	})
+	.valueAction_({1});
 
 
 	// onsets from contact mics
@@ -166,26 +167,19 @@ s.waitForBoot{
 			hitcount = hitcount + 1;
 			hitcount.postln;
 
-			["plank onsets", plank_onsets].postln;
-			["sticks onsets", stick_onsets].postln;
+			["plank onsets", plank_onsets.sum, plank_onsets].postln;
+			["sticks onsets", stick_onsets.sum, stick_onsets].postln;
 			["plank amps", plank_amps].postln;
+			["time", hitdata[\time]].postln;
 
 			if ((plank_onsets.sum > 0) && (stick_onsets.sum > 0), { // at least one onset in both
 
-				if (stick_onsets.indexOf(1.0) > 1, { //0,1 playerA, 2,3 playerB
+				if (stick_onsets.indexOf(1.0) > 1, { //0,1 > player A, 2,3 > player B
 					hitdata[\player] = 1; // else 0
 				});
 				hitdata[\plank] = plank_onsets.indexOf(1.0);
 				hitdata[\stick] = stick_onsets.indexOf(1.0);
 				hitdata[\amp] = plank_amps[plank_onsets.indexOf(1.0)];
-
-				//"--- HIT DATA ----".postln;
-				["time", hitdata[\time]].postln;
-
-				//["player", hitdata[\player]].postln;
-				//["in plank",hitdata[\plank]].postln;
-				//["with stick", hitdata[\stick]].postln;
-				//["with amp", hitdata[\amp]].postln;
 
 				//CVS "timestamp, amplitude, plank, player\n";
 				data = data
@@ -195,11 +189,14 @@ s.waitForBoot{
 				++ hitdata[\player] ++ "\n";
 
 				newhitF.value(hitdata); // NOW DISPLAY IN PIANO ROLL AND CLEAR
-			}, {
+
+			}, { // when plank fires but stick doesnt or the other way around
 				incomplete = incomplete + 1;
 				(">>> incomplete hit!!"+incomplete).postln
 			});
-		}, {"skipping double hit".postln});
+		}, { // double hits are probably because two onsets get fired (plank and stick). data is identical.
+			//"skipping double hit".postln
+		});
 
 		prevtime = hitdata[\time]; // store
 	}, '/onset');
